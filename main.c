@@ -27,8 +27,6 @@ __CONFIG(0x00F4); // 8mhz int
 // I2C LED
 #define I2C_LED 	 RA2
 
-// Set Device Address here
-#define ADDRESS      0
 
 #define START_BYTE  	0x55  // ASCII "U", used for Automatic Baud Detection
 #define VALID_ACK		0x42
@@ -74,7 +72,7 @@ const unsigned short positionTable[256] = {
 	61465 , 61453 , 61442 , 61430 , 61418 , 61406 , 61395 , 61383 , 
 	61371 , 61359 , 61348 , 61336 , 61324 , 61312 , 61301 , 61289 , 
 	61277 , 61266 , 61254 , 61242 , 61230 , 61219 , 61207 , 61195 , 
-	61183 , 61172 , 61160 , 61148 , 61137 , 61125 , 61113 , 61101 
+	61183 , 61172 , 61160 , 61148 , 61137 , 61125 , 61113 , 61101   
 };
 
 
@@ -92,7 +90,7 @@ const unsigned short positionTable[256] = {
 // Timer 1 value
 unsigned short T1; 
 
-char baud_detected    = 0;
+char baud_detected    = 1;
 //char command_mode   = 0; 
 char command_received = 0;
 
@@ -107,11 +105,19 @@ void Serial_Initialize(unsigned char);
 
 void interrupt interrupt_controller(void) 
 {
+    static unsigned short count = 0;
 	unsigned char rx_byte; 
 
 	if(RCIF)
 	{
-		if(!baud_detected)
+		count++;
+    
+        if(count % 10 == 0)
+		{
+			UART_LED = ~UART_LED;
+		}
+
+		/*if(!baud_detected)
 		{
 			SPBRG = SPBRG;
 			rx_byte = RCREG;
@@ -120,14 +126,21 @@ void interrupt interrupt_controller(void)
 			SPBRG--;
 		}
 		else
-		{
+		{*/
 			rx_byte = RCREG;
 			UART_CommandParser(rx_byte);
-		}
+		//}
 	}
 
 	if(SSPIF)
 	{
+		count++;
+
+		if(count % 10 == 0)
+		{
+			I2C_LED = ~I2C_LED;
+		}	
+		
 		if(SSPOV) // SSP Overflow
 		{
 			SSPOV = 0;
@@ -145,8 +158,6 @@ void interrupt interrupt_controller(void)
 
 	if(T0IF)	            			 
 	{ 
-		RB7 = ~RB7;
-
 		TMR0 = TIMER0_INIT;                 //load Frame 196 x 12.8us = 2508us interrupt cycle 
 		
 		PORTC = PORTC & ~(1 << servo);      // force servo off...in case value was wrong 
@@ -253,23 +264,22 @@ void UART_CommandParser(unsigned char byte)
 	static char current_command;
 	static char next_arg;
 
-	static char menu_start = 0;
-	static char accept_config = 0;	
-	static char config_string[6]; 
+	//static char menu_start = 0;
+	//static char accept_config = 0;	
+	//static char config_string[7]; 
+	//static int config_length = 0;
 
 	static char current_servo;
 
-/////// CONFIG MENU NOT DONE ////////////////
-/*
-	if(byte == '+')
+	///// START CONFIG MENU /////
+	/*if(byte == '+')
 	{
 		menu_start++;
 
 		if(menu_start == 3)
 		{
 			accept_config = 1;
-			//config_string = (char *)malloc(6*sizeof(char));
-			TXREG = 'C';
+			Send_String((char *)"OK\r\n");
 			return;
 		}
 	}
@@ -281,21 +291,35 @@ void UART_CommandParser(unsigned char byte)
 	if(accept_config)
 	{
 		TRISC = 0xFF;  // Disable servo outputs for safety
-	
-		if(byte != 0x0D) // end sentinel
-		{								    
-			strcat(&config_string, &byte); // NOT WORKING PROPERLY
-		}								   // String gets mangled
-		else
-		{
-			Start_Config_Menu(&config_string);
+		
+		if(byte != 0x0D && config_length <= 6) // end sentinel
+		{	
+			//TXREG = 'I';
+			config_string[config_length] = byte;
+			config_length++;							    
+			//strcat(&config_string, &byte); // NOT WORKING PROPERLY
+										   // String gets mangled
+			return;
 		}
-	}
-*/
-/////// CONFIG MENU NOT DONE ////////////////
+		else if(config_length >= 3)
+		{
+			//TXREG = 'S';
+			//config_string[config_length] = byte;
+			config_string[config_length] = 0xFF;
+			//strcat(&config_string, (char)0xFF);
+			accept_config = Start_Config_Menu(&config_string);
+			
+			for(config_length = 0; config_length < 7; config_length++)
+			{
+				config_string[config_length] = 0x00;
+			}
+			config_length = 0;
+			
+		}
+	}*/
+    ///// END CONFIG MENU /////	
 	
-	
-	if(!accept_serial && byte == START_BYTE)
+	/*else*/ if(!accept_serial && byte == START_BYTE)
 	{
 		accept_serial = SET;
 	}
@@ -319,33 +343,39 @@ void UART_CommandParser(unsigned char byte)
 				else if(next_arg == 1)
 				{
 					pos[current_servo] = positionTable[byte];
-					next_arg = 0;
-					accept_serial = RESET;
-					//command_mode = RESET;
-					command_received = RESET;
-					current_command = RESET;
-					current_servo = 0;
+					next_arg 		   = RESET;
+					accept_serial      = RESET;
+					//command_mode     = RESET;
+					command_received   = RESET;
+					current_command    = RESET;
+					current_servo      = RESET;
 
-					TXREG = VALID_ACK;
+					Send_Char(VALID_ACK);
 				}
 			}
 			else if(current_command == SERVO_OFF)
 			{
 				if(next_arg == 0)
 				{
-					current_servo = byte;
-					TRISC = TRISC | (1 << current_servo);
-					accept_serial = RESET;
-					//command_mode = RESET;
+					current_servo    = byte;
+					TRISC            = TRISC | (1 << current_servo);
+					accept_serial    = RESET;
+					//command_mode   = RESET;
 					command_received = RESET;
-					current_command = RESET;
-					//args = 0;
-					TXREG = VALID_ACK;
+					current_command  = RESET;
+					
+					Send_Char(VALID_ACK);
 				}
 			}
 			else if(current_command == RESET_CONTROLLER)
 			{
 				// TODO: FILL IN RESET COMMAND
+				next_arg 		   = RESET;
+				accept_serial      = RESET;
+				//command_mode     = RESET;
+				command_received   = RESET;
+				current_command    = RESET;
+				current_servo      = RESET;
 			}					
 		} 
 	}
@@ -354,16 +384,16 @@ void UART_CommandParser(unsigned char byte)
 
 void Initialize()
 {
-	OSCCON = 0b01110001; //0b01111000; //0b01110001; // Clock config to internal 8mhz 
-	while(HTS == 0); //Wait for frequency to stabilize
+	OSCCON = 0b01110001; 	// Clock config to internal 8mhz 
+	while(HTS == 0);    	//Wait for frequency to stabilize
 			
 	TRISC  = 0xFF; //0x00;    
 	ANSEL  = 0x00;        
 	ANSELH = 0x00;       		
-	OPTION = 0x84;               	      // Timer0 prescaler = 32 
+	OPTION = 0x84;			// Timer0 prescaler = 32 
 	PORTC  = 0; 
-	T1CON  = 0;                           // Timer1 Off; No prescaler 
-	TRISA  = 0xDB;  //0xFF;               // RA2 and 5 outputs for LEDs
+	T1CON  = 0;             // Timer1 Off; No prescaler 
+	TRISA  = 0xDB;  //0xFF; // RA2 and 5 outputs for LEDs
 	WPUA   = 0x00;
 
 
@@ -391,9 +421,6 @@ void Initialize()
 
 	PEIE = ENABLED;
 	GIE = ENABLED;
-
-
-	TRISB7 = 0;
 }
 
 void Serial_Initialize(unsigned char mode)
@@ -429,10 +456,10 @@ void Serial_Initialize(unsigned char mode)
     	//xxxx 0110 = I2C Slave mode, 7 bit address, no interrupts on start and stop
     	//xxx1 xxxx = CKP = 1, Enable clock
     	//xx1x xxxx = SSPEN, Enable SSP
-		//Configure as I2C slave at address 0x39
+		//Configure as I2C slave at given address 
 		SSPMSK = 0xFF;
 		SSPCON = 0b00110110;
-		SSPADD = ADDRESS;
+		SSPADD = I2C_ADDRESS;
 	
 	
 		//All bits must be cleared
@@ -448,13 +475,13 @@ void Serial_Initialize(unsigned char mode)
 		SPBRG  = 0;
 		
 		// Setup the hardware UART module and interrupts for 9600
-   		//SPBRG = 51;
-		//BRG16 = 0;
+   		SPBRG = 51;
+		BRG16 = 0;
 
 		// Setup the hardware UART module and interrupts for 115200
     	//SPBRG = 16;
-		BRGH  = 1;
-		BRG16 = 1;	
+		//BRGH  = 1;
+		//BRG16 = 1;	
 
     	TXSTA = 0b00100100; //Enable Transmit BRGH to high speed
     	RCSTA = 0b10010000; //Receive enable, 8-bit asych continous receive mode
@@ -463,6 +490,9 @@ void Serial_Initialize(unsigned char mode)
 		RCIE = ENABLED;           // Receive interrupt enabled
 		//TXIE = DISABLED; 			// Transmit interrupt disableds
 	}   // END UART
+
+	I2C_LED	 = mode;
+	UART_LED = !mode;
 }
 
 int main()
@@ -474,16 +504,16 @@ int main()
 	Initialize();
 
 	
-	if(!baud_detected && !I2C_JUMPER)
+	/*if(!baud_detected && !I2C_JUMPER)
 	{
 		ABDEN = 1;
-	}
+	}*/
 
 	while(1) 
 	{		
 
-		I2C_LED	 = serial_state;
-		UART_LED = !serial_state;	
+		//I2C_LED	 = serial_state;
+		//UART_LED = !serial_state;	
 		
 		if(serial_state != I2C_JUMPER)
 		{

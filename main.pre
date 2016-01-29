@@ -1,5 +1,5 @@
 
-# 1 "C:\code\@oopl\!ServoController_v4\main.c"
+# 1 "C:\code\@oopl\!ServoController_v5\main.c"
 
 # 21 "C:\Program Files (x86)\HI-TECH Software\PICC\9.70\include\pic16f685.h"
 volatile unsigned char INDF @ 0x000;
@@ -568,13 +568,15 @@ extern char * strichr(const char *, int);
 extern char * strrchr(const char *, int);
 extern char * strrichr(const char *, int);
 
-# 11 "C:\code\@oopl\!ServoController_v4\config_menu.h"
-void Start_Config_Menu(char *);
+# 26 "C:\code\@oopl\!ServoController_v5\config_menu.h"
+void Send_Char(char);
+void Send_String(char *);
+int Start_Config_Menu(char *);
 
-# 15 "C:\code\@oopl\!ServoController_v4\main.c"
+# 15 "C:\code\@oopl\!ServoController_v5\main.c"
 asm("\tpsect config,class=CONFIG,delta=2"); asm("\tdw ""0x00F4");
 
-# 45
+# 43
 const unsigned short positionTable[256] = {
 64092 , 64081 , 64069 , 64057 , 64046 , 64034 , 64022 , 64010 ,
 63999 , 63987 , 63975 , 63963 , 63952 , 63940 , 63928 , 63917 ,
@@ -610,10 +612,10 @@ const unsigned short positionTable[256] = {
 61183 , 61172 , 61160 , 61148 , 61137 , 61125 , 61113 , 61101
 };
 
-# 93
+# 91
 unsigned short T1;
 
-char baud_detected = 0;
+char baud_detected = 1;
 
 char command_received = 0;
 
@@ -628,27 +630,33 @@ void Serial_Initialize(unsigned char);
 
 void interrupt interrupt_controller(void)
 {
+static unsigned short count = 0;
 unsigned char rx_byte;
 
 if(RCIF)
 {
-if(!baud_detected)
+count++;
+
+if(count % 10 == 0)
 {
-SPBRG = SPBRG;
-rx_byte = RCREG;
-TXREG = 'D';
-baud_detected = 1;
-SPBRG--;
+RA5 = ~RA5;
 }
-else
-{
+
+# 131
 rx_byte = RCREG;
 UART_CommandParser(rx_byte);
-}
+
 }
 
 if(SSPIF)
 {
+count++;
+
+if(count % 10 == 0)
+{
+RA2 = ~RA2;
+}
+
 if(SSPOV)
 {
 SSPOV = 0;
@@ -666,8 +674,6 @@ SSPIF = 0;
 
 if(T0IF)
 {
-RB7 = ~RB7;
-
 TMR0 = 101;
 
 PORTC = PORTC & ~(1 << servo);
@@ -690,7 +696,7 @@ TMR1ON = 0;
 }
 }
 
-# 182
+# 194
 void I2C_CommandParser(unsigned char byte)
 {
 static char current_command;
@@ -750,23 +756,21 @@ next_arg = 0;
 }
 }
 
-# 250
+# 262
 void UART_CommandParser(unsigned char byte)
 {
 static char accept_serial = 0;
 static char current_command;
 static char next_arg;
 
-static char menu_start = 0;
-static char accept_config = 0;
-static char config_string[6];
-
+# 273
 static char current_servo;
 
-# 298
+# 325
 if(!accept_serial && byte == 0x55)
 {
 accept_serial = 1;
+
 }
 else if(accept_serial)
 {
@@ -774,6 +778,8 @@ if(!command_received)
 {
 current_command = byte;
 command_received = 1;
+
+
 }
 else if(command_received)
 {
@@ -784,6 +790,8 @@ if(next_arg == 0)
 current_servo = byte;
 TRISC = TRISC & ~(1 << current_servo);
 next_arg++;
+
+
 }
 else if(next_arg == 1)
 {
@@ -795,7 +803,7 @@ command_received = 0;
 current_command = 0;
 current_servo = 0;
 
-TXREG = 0x42;
+Send_Char(0x42);
 }
 }
 else if(current_command == 0x0D)
@@ -809,12 +817,18 @@ accept_serial = 0;
 command_received = 0;
 current_command = 0;
 
-TXREG = 0x42;
+Send_Char(0x42);
 }
 }
 else if(current_command == 0x52)
 {
 
+next_arg = 0;
+accept_serial = 0;
+
+command_received = 0;
+current_command = 0;
+current_servo = 0;
 }
 }
 }
@@ -860,9 +874,6 @@ Serial_Initialize(RA4);
 
 PEIE = 1;
 GIE = 1;
-
-
-TRISB7 = 0;
 }
 
 void Serial_Initialize(unsigned char mode)
@@ -901,7 +912,7 @@ SSPCON = 0b00111001;
 
 SSPMSK = 0xFF;
 SSPCON = 0b00110110;
-SSPADD = 0;
+SSPADD = 0x04;
 
 
 
@@ -916,10 +927,11 @@ else
 SPBRGH = 0;
 SPBRG = 0;
 
-# 456
-BRGH = 1;
-BRG16 = 1;
 
+SPBRG = 51;
+BRG16 = 0;
+
+# 494
 TXSTA = 0b00100100;
 RCSTA = 0b10010000;
 SCKP = 0;
@@ -927,6 +939,9 @@ SCKP = 0;
 RCIE = 1;
 
 }
+
+RA2 = mode;
+RA5 = !mode;
 }
 
 int main()
@@ -937,17 +952,12 @@ unsigned char serial_state = RA4;
 GIE = 0;
 Initialize();
 
-
-if(!baud_detected && !RA4)
-{
-ABDEN = 1;
-}
-
+# 520
 while(1)
 {
 
-RA2 = serial_state;
-RA5 = !serial_state;
+
+
 
 if(serial_state != RA4)
 {

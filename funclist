@@ -1,7 +1,9 @@
-_I2C_CommandParser: CODE, 753 0 183
-_main: CODE, 1362 0 65
-_interrupt_controller: CODE, 936 0 151
-_Initialize: CODE, 1087 0 146
-_Serial_Initialize: CODE, 1233 0 129
-_UART_CommandParser: CODE, 551 0 202
-Total: 876
+_I2C_CommandParser: CODE, 980 0 185
+_main: CODE, 1549 0 29
+_interrupt_controller: CODE, 793 0 187
+_Send_Char: CODE, 1803 0 10
+_Initialize: CODE, 1314 0 143
+_Serial_Initialize: CODE, 1165 0 149
+_UART_CommandParser: CODE, 562 0 231
+___lwmod: CODE, 1457 0 63
+Total: 997
